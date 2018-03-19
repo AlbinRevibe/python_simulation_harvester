@@ -3,24 +3,23 @@ from scipy.integrate import odeint
 import matplotlib.pyplot as plt
 from scipy.integrate import cumtrapz
 from scipy.optimize import minimize
+
 def simulation(t, x_0, param):
     lambda_m = param[0]
     lambda_e = param[1]
     omega_d = param[2]
     m = param[3]
+    R_coil = param[4]
+    R_load = param[5]
+    L = param[6]
 
     omega_0 = np.sqrt((lambda_e+lambda_m)**2 + omega_d**2)
     xi_m = lambda_m/omega_0
     xi_e = lambda_e/omega_0
     xi = xi_e + xi_m
 
-
     k = omega_0**2*m
-    R_coil = 300
-    R_load = 1000
-    L = 0.01
-    k_t = np.sqrt(lambda_e*(R_coil + R_load)*2*m)
-
+    k_t = np.sqrt(lambda_e*(R_coil + R_load)*m)
 
     args = (omega_0, xi, k_t, R_coil+R_load, L)
 
@@ -39,18 +38,6 @@ def simulation(t, x_0, param):
     E_kin = m*vel**2/2
     E_pot = k*pos**2/2
 
-
-    '''
-    fig_motion = plt.figure()
-    ax_pos = fig_motion.add_subplot(311)
-    ax_pos.plot(t, pos)
-    ax_vel = fig_motion.add_subplot(312)
-    ax_vel.plot(t, vel)
-    ax_current = fig_motion.add_subplot(313)
-    ax_current.plot(t, current)
-
-
-    '''
     return(pos, vel, current, emf, E_pot, E_kin, E_m, E_c, E_L)
 
 
@@ -71,18 +58,6 @@ def calc_coil_dissipation(current, R_coil):
 def calc_load_dissipation(current, R_load):
     return current**2/R_load
 
-def iterate_mass(m, args):
-    t = args[0]
-    x_0 = args[1]
-    param = args[2]
-    param = np.array([param[0], param[1], param[2], m])
-
-    (pos, vel, current, emf, E_pot, E_kin, E_m, E_c, E_L) = simulation(t, x_0, param)
-
-    E_diss = E_m + E_c + E_L
-    E_diff = E_pot[0] - E_diss[-1]
-
-    return E_diff**2
 
 if __name__ == '__main__':
     '''
@@ -91,31 +66,31 @@ if __name__ == '__main__':
     '''
 
     ''' Meassured parameters '''
-    with open('data/damping_model_D.txt', 'r') as textfile:
+    R_coil = 300
+    R_load = 1000
+    L = 0.01
+    with open('simulation_param.txt', 'r') as textfile:
         next(textfile)
         lambda_m = float(next(textfile))
         lambda_e = float(next(textfile))
         omega_d = float(next(textfile))
-    param = [lambda_m, lambda_e, omega_d]
+        m = float(next(textfile))
+    param = [lambda_m, lambda_e, omega_d, m, R_coil, R_load, L]
+
 
     ''' Simulation parameters '''
     t_0 = 0
-    t_f = 0.5
+    t_f = 2
     dt = 0.0001
     t = np.arange(t_0, t_f, dt)
 
     ''' Initial conditions '''
-    pos_0 = 1
+    pos_0 = 0.005
     vel_0 = 0
     current_0 = 0
     x_0 = np.array([pos_0, vel_0, current_0])
 
-    m_0 = 0.001 # Mass, this is not a free variable! I just did not manage to solve it yet
-    args = [t, x_0, param]
-    res = minimize(iterate_mass, m_0, args=args)
-    m = res.x[0]
 
-    param.append(m)
     (pos, vel, current, emf, E_pot, E_kin, E_m, E_c, E_L) = simulation(t, x_0, param)
 
     E_diss = E_m + E_c + E_L
@@ -123,13 +98,31 @@ if __name__ == '__main__':
     E_internal = E_kin[1:] + E_pot[1:]
 
 
-    with open('simulation_param.txt', 'w') as textfile:
-        textfile.write('lambda_m, lambda_e, omega_d, mass\n')
-        text = ''
-        for el in param:
-            text = text + str(el) + '\n'
-        text = text[:-1]
-        textfile.write(text)
+    fig_motion = plt.figure(figsize=(6,8))
+    ax_pos = fig_motion.add_subplot(311)
+    ax_pos.plot(t, pos*1000, color='red')
+    ax_pos.minorticks_on()
+    ax_pos.grid(True, which='minor', linestyle='--', color=[0.5, 0.5, 0.5])
+    ax_pos.grid(True, which='major', linestyle='-', color='black')
+    ax_pos.set_xlim(t[0], t[-1])
+    ax_pos.set_ylabel('Position [mm]')
+
+    ax_vel = fig_motion.add_subplot(312)
+    ax_vel.plot(t, vel*1000, color='blue')
+    ax_vel.minorticks_on()
+    ax_vel.grid(True, which='minor', linestyle='--', color=[0.5, 0.5, 0.5])
+    ax_vel.grid(True, which='major', linestyle='-', color='black')
+    ax_vel.set_xlim(t[0], t[-1])
+    ax_vel.set_ylabel('Position [mm/s]')
+
+    ax_emf = fig_motion.add_subplot(313)
+    ax_emf.plot(t, emf, color='green')
+    ax_emf.minorticks_on()
+    ax_emf.grid(True, which='minor', linestyle='--', color=[0.5, 0.5, 0.5])
+    ax_emf.grid(True, which='major', linestyle='-', color='black')
+    ax_emf.set_xlim(t[0], t[-1])
+    ax_emf.set_ylabel('Induced electromotive force [V]')
+    fig_motion.savefig('figures/free_motion.png', bbox_inches='tight')
 
     fig_energy = plt.figure()
     ax_energy = fig_energy.add_subplot(111)
@@ -137,5 +130,6 @@ if __name__ == '__main__':
     ax_energy.plot(t[1:], E_internal, label='Energy in spring', color='blue')
     ax_energy.plot(t[1:], E_tot, label='Total energy', color='black', linestyle='--')
     ax_energy.legend()
-    fig_energy.savefig('figures/energy_conservation_mass_iteration.png', bbox_inches='tight')
+    fig_energy.savefig('figures/energy_conservation_free_motion.png', bbox_inches='tight')
+
     plt.show()
